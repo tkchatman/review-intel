@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String              @id @default(cuid())
+  email               String?             @unique
+  name                String?
+  googleAccountId     String?
+  googleRefreshToken  String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  businessProfiles    BusinessProfile[]
+  reviewSyncJobs      ReviewSyncJob[]
+}
+
+model BusinessProfile {
+  id                      String          @id @default(cuid())
+  userId                  String?
+  googleAccountName       String?
+  googleLocationName      String?         @unique
+  googlePlaceId           String?         @unique
+  displayName             String
+  formattedAddress        String?
+  primaryCategory         String?
+  rating                  Decimal?        @db.Decimal(2, 1)
+  reviewCount             Int?
+  source                  ReviewSource    @default(google_business_profile)
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+  lastSyncedAt            DateTime?
+  user                    User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  reviews                 Review[]
+  reviewSyncJobs          ReviewSyncJob[]
+
+  @@index([displayName])
+  @@index([googlePlaceId])
+  @@index([googleLocationName])
+}
+
+model Review {
+  id                 String           @id @default(cuid())
+  businessProfileId  String
+  source             ReviewSource    @default(google_business_profile)
+  sourceReviewId     String?
+  sourceBusinessId   String?
+  googleReviewName   String?          @unique
+  googleReviewId     String?
+  reviewerName       String?
+  reviewerPhotoUrl   String?
+  starRating         Int?
+  comment            String?
+  createTime         DateTime?
+  updateTime         DateTime?
+  rawPayload         Json
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  businessProfile    BusinessProfile  @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+
+  @@index([businessProfileId])
+  @@index([source])
+  @@index([starRating])
+  @@index([createTime])
+  @@unique([source, sourceReviewId])
+}
+
+model ReviewSyncJob {
+  id                 String           @id @default(cuid())
+  userId             String?
+  businessProfileId  String?
+  status             SyncStatus       @default(PENDING)
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  errorMessage       String?
+  reviewsFetched     Int              @default(0)
+  createdAt          DateTime         @default(now())
+  user               User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  businessProfile    BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([businessProfileId])
+}
+
+enum ReviewSource {
+  google_places
+  google_business_profile
+  facebook
+  yelp
+  tripadvisor
+  instagram
+  app_store
+}
+
+enum SyncStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+}
