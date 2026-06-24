@@ -32,12 +32,28 @@ export async function listAccountLocations(accessToken, accountName) {
     "storefrontAddress",
     "metadata.placeId",
     "metadata.mapsUri",
+    "metadata.hasVoiceOfMerchant",
     "categories.primaryCategory",
   ].join(",");
 
   const url = `${businessInformationBaseUrl}/${accountName}/locations?readMask=${encodeURIComponent(fieldMask)}`;
   const data = await googleFetch(url, accessToken);
   return data.locations ?? [];
+}
+
+export async function listManagedLocations(accessToken) {
+  const accounts = await listAccounts(accessToken);
+  const managedLocations = [];
+
+  for (const account of accounts) {
+    const locations = await listAccountLocations(accessToken, account.name);
+
+    for (const location of locations) {
+      managedLocations.push({ account, location });
+    }
+  }
+
+  return managedLocations;
 }
 
 export async function listLocationReviews(accessToken, accountId, locationId, pageToken) {
@@ -55,16 +71,41 @@ export async function listLocationReviews(accessToken, accountId, locationId, pa
 }
 
 export async function findManagedLocationByPlaceId(accessToken, placeId) {
-  const accounts = await listAccounts(accessToken);
+  const managedLocations = await listManagedLocations(accessToken);
+  const match = managedLocations.find(({ location }) => location.metadata?.placeId === placeId);
 
-  for (const account of accounts) {
-    const locations = await listAccountLocations(accessToken, account.name);
-    const match = locations.find((location) => location.metadata?.placeId === placeId);
+  return match ?? null;
+}
 
-    if (match) {
-      return { account, location: match };
-    }
+export function getLocationVerificationState(location) {
+  if (location?.metadata?.hasVoiceOfMerchant === true) {
+    return "VERIFIED";
   }
 
-  return null;
+  if (location?.metadata?.hasVoiceOfMerchant === false) {
+    return "NOT_VERIFIED";
+  }
+
+  return "UNKNOWN";
+}
+
+export function formatManagedLocationForClient({ account, location }) {
+  const address = location.storefrontAddress;
+  const addressLines = [
+    ...(address?.addressLines ?? []),
+    [address?.locality, address?.administrativeArea, address?.postalCode].filter(Boolean).join(", "),
+  ].filter(Boolean);
+  const verificationState = getLocationVerificationState(location);
+
+  return {
+    accountName: account.name,
+    locationName: location.name,
+    title: location.title,
+    address: addressLines.join(" "),
+    placeId: location.metadata?.placeId ?? null,
+    category: location.categories?.primaryCategory?.displayName ?? null,
+    mapsUri: location.metadata?.mapsUri ?? null,
+    verificationState,
+    isVerified: verificationState === "VERIFIED",
+  };
 }

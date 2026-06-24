@@ -1,10 +1,12 @@
 ﻿import { useEffect, useState } from "react";
 import "./App.css";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || VITE_API_URL=https://api.reviewintelcare.com
 const SELECTED_BUSINESS_STORAGE_KEY = "selectedBusiness";
 const SELECTED_PLACE_ID_STORAGE_KEY = "selectedGooglePlaceId";
 const GOOGLE_USER_ID_STORAGE_KEY = "googleBusinessUserId";
+const AUTH_TOKEN_STORAGE_KEY = "reviewIntelAuthToken";
+const AUTH_USER_STORAGE_KEY = "reviewIntelAuthUser";
 
 function loadSelectedBusiness() {
   try {
@@ -14,6 +16,30 @@ function loadSelectedBusiness() {
     console.warn("Unable to load selected business from localStorage.", error);
     return null;
   }
+}
+
+function loadAuthUser() {
+  try {
+    const savedUser = localStorage.getItem(AUTH_USER_STORAGE_KEY);
+    return savedUser ? JSON.parse(savedUser) : null;
+  } catch (error) {
+    console.warn("Unable to load signed-in user from localStorage.", error);
+    return null;
+  }
+}
+
+function loadAuthToken() {
+  return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+}
+
+function saveAuthSession({ user, token }) {
+  localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+  localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
+}
+
+function clearAuthSession() {
+  localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(AUTH_USER_STORAGE_KEY);
 }
 
 function getPulseLabel(score) {
@@ -50,6 +76,25 @@ function getSourceLabel(source) {
   return labels[source] ?? source ?? "Unknown source";
 }
 
+function getMonthlyTrendSeries(insights) {
+  const monthlyReviewCounts = insights?.trends?.monthlyReviewCounts;
+
+  if (!monthlyReviewCounts) {
+    return null;
+  }
+
+  const entries = Object.entries(monthlyReviewCounts).sort(([a], [b]) => a.localeCompare(b));
+
+  if (!entries.length) {
+    return null;
+  }
+
+  return {
+    values: entries.map(([, count]) => Number(count) || 0),
+    labels: entries.map(([month]) => month),
+  };
+}
+
 function loadGoogleUserIdFromCallback() {
   const params = new URLSearchParams(window.location.search);
   const userId = params.get("userId");
@@ -65,7 +110,7 @@ function loadGoogleUserIdFromCallback() {
 
 function App() {
   const [initialSelectedBusiness] = useState(() => loadSelectedBusiness());
-  const [page, setPage] = useState(initialSelectedBusiness ? "free" : "home");
+  const [page, setPage] = useState("home");
   const [selectedBusiness, setSelectedBusiness] = useState(initialSelectedBusiness);
   const [selectedGooglePlaceId, setSelectedGooglePlaceId] = useState(() =>
     initialSelectedBusiness?.placeId ?? localStorage.getItem(SELECTED_PLACE_ID_STORAGE_KEY),
@@ -76,9 +121,157 @@ function App() {
   const [searchStatus, setSearchStatus] = useState("idle");
   const [searchError, setSearchError] = useState("");
   const [googleUserId, setGoogleUserId] = useState(() => loadGoogleUserIdFromCallback());
+  const [googleBusinessStatus, setGoogleBusinessStatus] = useState("idle");
+  const [googleBusinessMessage, setGoogleBusinessMessage] = useState("");
+  const [googleBusinessLocations, setGoogleBusinessLocations] = useState([]);
+  const [selectedGoogleLocationName, setSelectedGoogleLocationName] = useState("");
+  const [authToken, setAuthToken] = useState(() => loadAuthToken());
+  const [currentUser, setCurrentUser] = useState(() => loadAuthUser());
+  const [authStatus, setAuthStatus] = useState("idle");
+  const [authError, setAuthError] = useState("");
+  const [billingStatus, setBillingStatus] = useState("idle");
+  const [billingError, setBillingError] = useState("");
+  const [billingMessage, setBillingMessage] = useState("");
   const [reviewInsights, setReviewInsights] = useState(null);
   const [insightStatus, setInsightStatus] = useState("idle");
   const [insightError, setInsightError] = useState("");
+
+  useEffect(() => {
+    if (!authToken) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadCurrentUser() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/session`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error("Session expired.");
+        }
+
+        const data = await response.json();
+        setCurrentUser(data.user);
+        localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(data.user));
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        clearAuthSession();
+        setAuthToken(null);
+        setCurrentUser(null);
+        if (page === "free" || page === "premium") {
+          setPage("signin");
+        }
+      }
+    }
+
+    loadCurrentUser();
+
+    return () => controller.abort();
+  }, [authToken, page]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const googleConnected = params.get("googleConnected");
+
+    if (!googleConnected) {
+      return;
+    }
+
+    window.history.replaceState({}, "", window.location.pathname);
+
+    if (googleConnected === "true") {
+      setGoogleBusinessStatus("connected");
+      setGoogleBusinessMessage("Google Business Profile connected. You can sync full Google reviews now.");
+
+      if (authToken) {
+        fetch(`${API_BASE_URL}/api/auth/session`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        })
+          .then(async (response) => {
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error?.message ?? "Unable to refresh Google connection.");
+            setCurrentUser(data.user);
+            localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(data.user));
+          })
+          .catch((error) => {
+            setGoogleBusinessStatus("error");
+            setGoogleBusinessMessage(error.message);
+          });
+      }
+      return;
+    }
+
+    setGoogleBusinessStatus("error");
+    setGoogleBusinessMessage("Google Business Profile was not connected. Please try again.");
+  }, [authToken]);
+
+  useEffect(() => {
+    if (!authToken) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const checkoutStatus = params.get("checkout");
+    const sessionId = params.get("session_id");
+
+    if (!checkoutStatus) {
+      return;
+    }
+
+    window.history.replaceState({}, "", window.location.pathname);
+
+    async function handleCheckoutReturn() {
+      if (checkoutStatus === "canceled") {
+        setBillingMessage("Checkout was canceled. Premium access was not changed.");
+        setPage("home");
+        return;
+      }
+
+      if (checkoutStatus !== "success" || !sessionId) {
+        return;
+      }
+
+      setBillingStatus("loading");
+      setBillingError("");
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/billing/checkout-session/confirm`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ sessionId }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error?.message ?? "Unable to confirm your payment yet.");
+        }
+
+        const updatedUser = {
+          ...(currentUser ?? {}),
+          hasPremiumAccess: data.hasPremiumAccess,
+          subscription: data.subscription,
+        };
+        setCurrentUser(updatedUser);
+        localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(updatedUser));
+        setBillingMessage(data.hasPremiumAccess ? "Premium access is active." : "Payment is still processing.");
+        setPage(data.hasPremiumAccess && selectedBusiness ? "premium" : "home");
+      } catch (error) {
+        setBillingError(error.message);
+        setPage("checkout");
+      } finally {
+        setBillingStatus("idle");
+      }
+    }
+
+    handleCheckoutReturn();
+  }, [authToken, currentUser, selectedBusiness]);
 
   useEffect(() => {
     if (!selectedBusiness?.placeId) {
@@ -95,14 +288,19 @@ function App() {
       setInsightError("");
 
       try {
-        const response = googleUserId
+        const usePremiumInsights =
+          currentUser?.hasPremiumAccess && currentUser?.googleBusinessProfileConnected;
+        const response = usePremiumInsights
           ? await fetch(
               `${API_BASE_URL}/api/businesses/${encodeURIComponent(selectedBusiness.placeId)}/full-review-insights`,
               {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                },
                 body: JSON.stringify({
-                  userId: googleUserId,
+                  locationName: selectedGoogleLocationName || undefined,
                   name: selectedBusiness.name,
                   address: selectedBusiness.address ?? selectedBusiness.location,
                   rating: selectedBusiness.rating,
@@ -125,7 +323,18 @@ function App() {
         setReviewInsights({
           ...data.insights,
           analysisSource: data.source ?? data.insights?.source,
+          analysisResultId: data.analysisResultId ?? data.insights?.analysisResultId,
+          businessProfileId: data.businessProfileId ?? data.insights?.businessProfileId,
           reviewsFetched: data.reviewsFetched,
+          reviewsPulled: data.reviewsPulled ?? data.reviewsFetched ?? data.insights?.reviewsPulled,
+          reviewsSaved: data.reviewsSaved ?? data.insights?.reviewsSaved,
+          databaseSaveStatus: data.databaseSaveStatus,
+          databaseSaveError: data.databaseSaveError,
+          limitedData: data.limitedData ?? data.insights?.limitedReviewText,
+          limitedDataMessage:
+            data.limitedDataMessage ??
+            data.insights?.limitedReviewMessage ??
+            data.insights?.notEnoughReviewDataMessage,
         });
         setInsightStatus("success");
       } catch (error) {
@@ -141,11 +350,62 @@ function App() {
     loadInsights();
 
     return () => controller.abort();
-  }, [selectedBusiness, googleUserId]);
+  }, [
+    selectedBusiness,
+    selectedGoogleLocationName,
+    authToken,
+    currentUser?.hasPremiumAccess,
+    currentUser?.googleBusinessProfileConnected,
+  ]);
+
+  useEffect(() => {
+    if ((page === "free" || page === "premium") && !currentUser) {
+      setPage("signin");
+    }
+  }, [currentUser, page]);
 
   const startSignup = (plan) => {
     setSelectedPlan(plan);
+    setAuthError("");
+    setBillingError("");
+
+    if (plan === "premium" && currentUser) {
+      setPage(currentUser.hasPremiumAccess ? "premium" : "checkout");
+      return;
+    }
+
     setPage("signup");
+  };
+
+  const startSignin = () => {
+    setAuthError("");
+    setPage("signin");
+  };
+
+  const saveSelectedBusinessToDatabase = async (selected, token = authToken) => {
+    if (!selected || !token) return null;
+
+    const response = await fetch(`${API_BASE_URL}/api/businesses/select`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        placeId: selected.placeId,
+        name: selected.name,
+        address: selected.address,
+        rating: selected.rating,
+        reviewCount: selected.reviewCount,
+        category: selected.category,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Selected business was saved locally but could not be saved to your account yet.");
+    }
+
+    return response.json();
   };
 
   const searchBusinesses = async ({ businessName, location }) => {
@@ -175,7 +435,281 @@ function App() {
     }
   };
 
-  const chooseBusiness = (business) => {
+  const handleAuthSuccess = async ({ user, token }) => {
+    saveAuthSession({ user, token });
+    setCurrentUser(user);
+    setAuthToken(token);
+    setAuthError("");
+
+    if (selectedBusiness) {
+      try {
+        await saveSelectedBusinessToDatabase(selectedBusiness, token);
+      } catch (error) {
+        console.warn(error.message);
+      }
+      setPage("free");
+      return;
+    }
+
+    setPage("home");
+  };
+
+  const submitSignup = async ({ name, email, password }) => {
+    setAuthStatus("loading");
+    setAuthError("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message ?? "Unable to create your account.");
+      }
+
+      await handleAuthSuccess(data);
+      setPage(selectedPlan === "premium" ? "checkout" : "success");
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setAuthStatus("idle");
+    }
+  };
+
+  const submitSignin = async ({ email, password }) => {
+    setAuthStatus("loading");
+    setAuthError("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/signin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message ?? "Unable to sign in.");
+      }
+
+      await handleAuthSuccess(data);
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setAuthStatus("idle");
+    }
+  };
+
+  const refreshSubscription = async () => {
+    if (!authToken || !currentUser) return null;
+
+    const response = await fetch(`${API_BASE_URL}/api/billing/subscription`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error?.message ?? "Unable to load subscription status.");
+    }
+
+    const updatedUser = {
+      ...currentUser,
+      hasPremiumAccess: data.hasPremiumAccess,
+      subscription: data.subscription,
+    };
+    setCurrentUser(updatedUser);
+    localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(updatedUser));
+
+    return data;
+  };
+
+  const startStripeCheckout = async () => {
+    if (!currentUser || !authToken) {
+      setPage("signin");
+      return;
+    }
+
+    setBillingStatus("loading");
+    setBillingError("");
+    setBillingMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/billing/checkout-session`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message ?? "Unable to start Stripe checkout.");
+      }
+
+      if (data.alreadySubscribed) {
+        await refreshSubscription();
+        setPage(selectedBusiness ? "premium" : "home");
+        return;
+      }
+
+      if (!data.url) {
+        throw new Error("Stripe checkout did not return a redirect URL.");
+      }
+
+      window.location.href = data.url;
+    } catch (error) {
+      setBillingError(error.message);
+    } finally {
+      setBillingStatus("idle");
+    }
+  };
+
+  const openBillingPortal = async () => {
+    if (!currentUser || !authToken) {
+      setPage("signin");
+      return;
+    }
+
+    setBillingStatus("loading");
+    setBillingError("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/billing/portal-session`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message ?? "Unable to open the billing portal.");
+      }
+
+      window.location.href = data.url;
+    } catch (error) {
+      setBillingError(error.message);
+    } finally {
+      setBillingStatus("idle");
+    }
+  };
+
+  const startGoogleBusinessProfileConnection = async () => {
+    if (!currentUser || !authToken) {
+      setPage("signin");
+      return;
+    }
+
+    setGoogleBusinessStatus("loading");
+    setGoogleBusinessMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/google/url`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message ?? "Unable to start Google Business Profile connection.");
+      }
+
+      window.location.href = data.url;
+    } catch (error) {
+      setGoogleBusinessStatus("error");
+      setGoogleBusinessMessage(error.message);
+    }
+  };
+
+  const loadGoogleBusinessLocations = async () => {
+    if (!authToken) {
+      setPage("signin");
+      return;
+    }
+
+    setGoogleBusinessStatus("loading");
+    setGoogleBusinessMessage("Loading Google Business Profile locations...");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/businesses/google-business-profile/locations`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message ?? "Unable to load Google Business Profile locations.");
+      }
+
+      setGoogleBusinessLocations(data.locations ?? []);
+      const matchingLocation = (data.locations ?? []).find(
+        (location) => location.placeId && location.placeId === selectedBusiness?.placeId,
+      );
+      setSelectedGoogleLocationName(matchingLocation?.locationName ?? data.locations?.[0]?.locationName ?? "");
+      setGoogleBusinessStatus("connected");
+      setGoogleBusinessMessage(
+        data.locations?.length
+          ? "Google Business Profile connected. Select the verified location to sync reviews."
+          : "Google account connected, but no managed business locations were found.",
+      );
+    } catch (error) {
+      setGoogleBusinessStatus("error");
+      setGoogleBusinessMessage(error.message);
+    }
+  };
+
+  const syncGoogleBusinessProfileReviews = async () => {
+    if (!selectedBusiness?.placeId || !authToken) {
+      return;
+    }
+
+    setGoogleBusinessStatus("syncing");
+    setGoogleBusinessMessage("Pulling full Google Business Profile reviews...");
+    setInsightError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/businesses/${encodeURIComponent(selectedBusiness.placeId)}/google-business-profile/sync`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            locationName: selectedGoogleLocationName || undefined,
+            name: selectedBusiness.name,
+            address: selectedBusiness.address ?? selectedBusiness.location,
+            rating: selectedBusiness.rating,
+            reviewCount: selectedBusiness.reviewCount,
+            category: selectedBusiness.category,
+          }),
+        },
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message ?? "Unable to sync Google Business Profile reviews.");
+      }
+
+      setReviewInsights({
+        ...data.insights,
+        analysisSource: data.source ?? data.insights?.source,
+        analysisResultId: data.analysisResultId ?? data.insights?.analysisResultId,
+        businessProfileId: data.businessProfileId ?? data.insights?.businessProfileId,
+        reviewsFetched: data.reviewsFetched,
+        reviewsPulled: data.reviewsFetched,
+        reviewsSaved: data.reviewsSaved,
+        limitedData: false,
+      });
+      setInsightStatus("success");
+      setGoogleBusinessStatus("synced");
+      setGoogleBusinessMessage(`${data.reviewsFetched ?? 0} Google Business Profile reviews synced.`);
+    } catch (error) {
+      setGoogleBusinessStatus("error");
+      setGoogleBusinessMessage(error.message);
+      setInsightError(error.message);
+    }
+  };
+
+  const chooseBusiness = async (business) => {
     const selected = {
       placeId: business.placeId,
       name: business.name ?? business.displayName,
@@ -193,29 +727,59 @@ function App() {
     setSelectedGooglePlaceId(selected.placeId);
     localStorage.setItem(SELECTED_BUSINESS_STORAGE_KEY, JSON.stringify(selected));
     localStorage.setItem(SELECTED_PLACE_ID_STORAGE_KEY, selected.placeId);
+
+    if (!currentUser || !authToken) {
+      setPage("signin");
+      return;
+    }
+
+    try {
+      await saveSelectedBusinessToDatabase(selected);
+    } catch (error) {
+      console.warn(error.message);
+    }
     setPage("free");
   };
 
   const continueToDashboard = () => {
+    if (!currentUser) {
+      setPage("signin");
+      return;
+    }
+
     if (!selectedBusiness) {
       setPage("home");
       return;
     }
 
     if (selectedPlan === "premium") {
-      setPage("premium");
+      setPage(currentUser.hasPremiumAccess ? "premium" : "checkout");
     } else {
       setPage("free");
     }
   };
 
-  const signOut = () => {
+  const signOut = async () => {
+    if (authToken) {
+      fetch(`${API_BASE_URL}/api/auth/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).catch(() => {});
+    }
+
     setSelectedBusiness(null);
     setSelectedGooglePlaceId(null);
     setReviewInsights(null);
     setInsightStatus("idle");
     setInsightError("");
     setGoogleUserId(null);
+    setGoogleBusinessStatus("idle");
+    setGoogleBusinessMessage("");
+    setGoogleBusinessLocations([]);
+    setSelectedGoogleLocationName("");
+    setCurrentUser(null);
+    setAuthToken(null);
+    clearAuthSession();
     localStorage.removeItem(SELECTED_BUSINESS_STORAGE_KEY);
     localStorage.removeItem(SELECTED_PLACE_ID_STORAGE_KEY);
     localStorage.removeItem(GOOGLE_USER_ID_STORAGE_KEY);
@@ -230,6 +794,7 @@ function App() {
           searchStatus={searchStatus}
           searchError={searchError}
           startSignup={startSignup}
+          startSignin={startSignin}
         />
       )}
 
@@ -248,7 +813,7 @@ function App() {
           insights={reviewInsights}
           insightStatus={insightStatus}
           insightError={insightError}
-          googleUserId={googleUserId}
+          googleUserId={currentUser?.googleBusinessProfileConnected ? currentUser.id : null}
           startSignup={startSignup}
           signOut={signOut}
         />
@@ -260,9 +825,23 @@ function App() {
           insights={reviewInsights}
           insightStatus={insightStatus}
           insightError={insightError}
-          googleUserId={googleUserId}
+          googleUserId={currentUser?.googleBusinessProfileConnected ? currentUser.id : null}
           selectedGooglePlaceId={selectedGooglePlaceId}
           signOut={signOut}
+          currentUser={currentUser}
+          authToken={authToken}
+          startSignup={startSignup}
+          openBillingPortal={openBillingPortal}
+          billingStatus={billingStatus}
+          billingError={billingError}
+          googleBusinessStatus={googleBusinessStatus}
+          googleBusinessMessage={googleBusinessMessage}
+          googleBusinessLocations={googleBusinessLocations}
+          selectedGoogleLocationName={selectedGoogleLocationName}
+          setSelectedGoogleLocationName={setSelectedGoogleLocationName}
+          startGoogleBusinessProfileConnection={startGoogleBusinessProfileConnection}
+          loadGoogleBusinessLocations={loadGoogleBusinessLocations}
+          syncGoogleBusinessProfileReviews={syncGoogleBusinessProfileReviews}
         />
       )}
 
@@ -271,11 +850,32 @@ function App() {
           selectedPlan={selectedPlan}
           setSelectedPlan={setSelectedPlan}
           setPage={setPage}
+          submitSignup={submitSignup}
+          authStatus={authStatus}
+          authError={authError}
+        />
+      )}
+
+      {page === "signin" && (
+        <SigninPage
+          submitSignin={submitSignin}
+          startSignup={startSignup}
+          setPage={setPage}
+          authStatus={authStatus}
+          authError={authError}
         />
       )}
 
       {page === "checkout" && (
-        <CheckoutPage selectedPlan={selectedPlan} setPage={setPage} />
+        <CheckoutPage
+          selectedPlan={selectedPlan}
+          setPage={setPage}
+          startStripeCheckout={startStripeCheckout}
+          billingStatus={billingStatus}
+          billingError={billingError}
+          billingMessage={billingMessage}
+          currentUser={currentUser}
+        />
       )}
 
       {page === "success" && (
@@ -288,7 +888,7 @@ function App() {
   );
 }
 
-function HomePage({ searchBusinesses, searchStatus, searchError, startSignup }) {
+function HomePage({ searchBusinesses, searchStatus, searchError, startSignup, startSignin }) {
   const [businessName, setBusinessName] = useState("");
   const [location, setLocation] = useState("");
 
@@ -303,7 +903,7 @@ function HomePage({ searchBusinesses, searchStatus, searchError, startSignup }) 
         <div className="logo">REVIEW INTEL CARE</div>
 
         <div className="navActions">
-          <button className="navGhost" onClick={() => startSignup("free")}>
+          <button className="navGhost" onClick={startSignin}>
             Sign In
           </button>
           <button className="navGold" onClick={() => startSignup("free")}>
@@ -487,7 +1087,12 @@ function HomePage({ searchBusinesses, searchStatus, searchError, startSignup }) 
               <div className="premiumFeature">
                 <p className="featureLabel">Complaint Trends</p>
                 <h4>Trends are generated from the selected business reviews after connection.</h4>
-                <LineGraph />
+                <TrendLineGraph
+                  values={[12, 24, 41, 34]}
+                  labels={["Jan", "Feb", "Mar", "Apr"]}
+                  max={50}
+                  suffix=""
+                />
               </div>
 
               <div className="premiumFeature">
@@ -594,10 +1199,19 @@ function ResultsPage({ results, source, chooseBusiness, setPage }) {
     </section>
   );
 }
-function SignupPage({ selectedPlan, setSelectedPlan, setPage }) {
+function SignupPage({ selectedPlan, setSelectedPlan, setPage, submitSignup, authStatus, authError }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    submitSignup({ name, email, password });
+  };
+
   return (
     <section className="signupPage">
-      <div className="signupCard">
+      <form className="signupCard" onSubmit={handleSubmit}>
         <p className="eyebrow">Account Setup</p>
         <h1>Create your Review Intel Care account</h1>
         <p className="signupText">
@@ -605,14 +1219,17 @@ function SignupPage({ selectedPlan, setSelectedPlan, setPage }) {
         </p>
 
         <div className="signupForm">
-          <input placeholder="Full name" />
-          <input placeholder="Email address" />
-          <input placeholder="Password" type="password" />
+          <input placeholder="Full name" value={name} onChange={(event) => setName(event.target.value)} required />
+          <input placeholder="Email address" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          <input placeholder="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} required />
           <input placeholder="Business name" />
         </div>
 
+        {authError && <p className="searchError">{authError}</p>}
+
         <div className="signupPlans">
           <button
+            type="button"
             className={selectedPlan === "free" ? "selectedPlan" : ""}
             onClick={() => setSelectedPlan("free")}
           >
@@ -621,6 +1238,7 @@ function SignupPage({ selectedPlan, setSelectedPlan, setPage }) {
           </button>
 
           <button
+            type="button"
             className={selectedPlan === "premium" ? "selectedPlan" : ""}
             onClick={() => setSelectedPlan("premium")}
           >
@@ -630,28 +1248,70 @@ function SignupPage({ selectedPlan, setSelectedPlan, setPage }) {
         </div>
 
         <button
+          type="submit"
           className="signupPrimary"
-          onClick={() => setPage(selectedPlan === "premium" ? "checkout" : "success")}
+          disabled={authStatus === "loading"}
         >
-          Continue
+          {authStatus === "loading" ? "Creating Account..." : "Continue"}
         </button>
 
-        <button className="signupSecondary" onClick={() => setPage("home")}>
+        <button className="signupSecondary" type="button" onClick={() => setPage("home")}>
           Back to Home
         </button>
-      </div>
+      </form>
     </section>
   );
 }
 
-function CheckoutPage({ selectedPlan, setPage }) {
+function SigninPage({ submitSignin, startSignup, setPage, authStatus, authError }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    submitSignin({ email, password });
+  };
+
+  return (
+    <section className="signupPage">
+      <form className="signupCard" onSubmit={handleSubmit}>
+        <p className="eyebrow">Welcome Back</p>
+        <h1>Sign in to Review Intel Care</h1>
+        <p className="signupText">
+          Sign in to view your selected business, Free Snapshot, and saved review analysis.
+        </p>
+
+        <div className="signupForm">
+          <input placeholder="Email address" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          <input placeholder="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+        </div>
+
+        {authError && <p className="searchError">{authError}</p>}
+
+        <button className="signupPrimary" type="submit" disabled={authStatus === "loading"}>
+          {authStatus === "loading" ? "Signing In..." : "Sign In"}
+        </button>
+
+        <button className="signupSecondary" type="button" onClick={() => startSignup("free")}>
+          Create Account
+        </button>
+
+        <button className="signupSecondary" type="button" onClick={() => setPage("home")}>
+          Back to Home
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function CheckoutPage({ selectedPlan, setPage, startStripeCheckout, billingStatus, billingError, billingMessage, currentUser }) {
   return (
     <section className="signupPage">
       <div className="signupCard">
         <p className="eyebrow">Checkout</p>
         <h1>Start Premium</h1>
         <p className="signupText">
-          This is a frontend-only checkout screen. Backend payment will be added later.
+          Premium is billed securely through Stripe at $20/month. Your premium access is activated after payment succeeds.
         </p>
 
         <div className="checkoutSummary">
@@ -666,17 +1326,27 @@ function CheckoutPage({ selectedPlan, setPage }) {
           </div>
         </div>
 
-        <div className="paymentBox">
-          <input placeholder="Card number" />
-          <div>
-            <input placeholder="MM/YY" />
-            <input placeholder="CVC" />
-          </div>
-          <input placeholder="Billing ZIP code" />
-        </div>
+        {currentUser?.hasPremiumAccess ? (
+          <p className="signupText">Premium access is active for this account.</p>
+        ) : (
+          <p className="signupText">
+            You will be redirected to Stripe Checkout to enter payment details.
+          </p>
+        )}
 
-        <button className="signupPrimary" onClick={() => setPage("success")}>
-          Start Premium
+        {billingMessage && <p className="signupText">{billingMessage}</p>}
+        {billingError && <p className="searchError">{billingError}</p>}
+
+        <button
+          className="signupPrimary"
+          onClick={currentUser?.hasPremiumAccess ? () => setPage("premium") : startStripeCheckout}
+          disabled={billingStatus === "loading"}
+        >
+          {currentUser?.hasPremiumAccess
+            ? "Go to Premium Dashboard"
+            : billingStatus === "loading"
+              ? "Opening Stripe..."
+              : "Continue to Stripe Checkout"}
         </button>
 
         <button className="signupSecondary" onClick={() => setPage("signup")}>
@@ -719,7 +1389,7 @@ function FreeDashboard({ business, insights, insightStatus, insightError, google
     reviewCount: insights?.reviewCount ?? business.reviewCount ?? business.reviews ?? 0,
   };
   const fallbackPulseScore = getPulseScoreFromRating(dashboardBusiness.rating);
-  const pulseScore = insights?.pulseScore ?? fallbackPulseScore;
+  const pulseScore = insights?.sentimentScore ?? insights?.pulseScore ?? fallbackPulseScore;
   const pulseLabel = insights?.pulseLabel ?? getPulseLabel(pulseScore);
   const pulseDisplay =
     insightStatus === "loading"
@@ -731,12 +1401,29 @@ function FreeDashboard({ business, insights, insightStatus, insightError, google
     insights?.topComplaints?.map((theme) => `${theme.label} - ${theme.value}`) ?? [];
   const complimentItems =
     insights?.topCompliments?.map((theme) => `${theme.label} - ${theme.value}`) ?? [];
-  const limitedMessage = googleUserId
-    ? ""
-    : "The Free Snapshot shows limited review data. Upgrade to Premium to unlock complete review intelligence and AI-powered analysis.";
   const notEnoughMessage = insights?.notEnoughReviewDataMessage ?? "Not enough review data available yet.";
+  const backendLimitedMessage = insights?.limitedReviewText
+    ? notEnoughMessage
+    : "The Free Snapshot analyzes only a limited review sample. Upgrade to Premium to analyze all available reviews, uncover trends, and unlock deeper AI insights.";
+  const limitedMessage =
+    insights?.limitedData || insights?.limitedReviewText
+      ? backendLimitedMessage
+      : !googleUserId
+        ? "The Free Snapshot shows limited review data. Upgrade to Premium to unlock complete review intelligence and AI-powered analysis."
+        : "";
   const totalGoogleReviews = dashboardBusiness.reviewCount;
   const analyzedReviewTexts = insights?.reviewsAnalyzed ?? 0;
+  const reviewsPulled = insights?.reviewsPulled ?? insights?.reviewsFetched ?? 0;
+  const reviewsSaved = insights?.reviewsSaved ?? insights?.reviewsAvailable ?? 0;
+  const reviewsMetricValue = googleUserId ? analyzedReviewTexts : reviewsPulled || analyzedReviewTexts;
+  const reviewsMetricLabel = googleUserId ? "Reviews Analyzed" : "Public Review Texts Available";
+  const reviewsMetricDetail = insights
+    ? googleUserId
+      ? `${analyzedReviewTexts} of ${totalGoogleReviews} reviews analyzed`
+      : reviewsPulled || reviewsSaved
+        ? `${totalGoogleReviews} total reviews found. ${reviewsPulled} pulled, ${reviewsSaved} saved for analysis.`
+        : `${totalGoogleReviews} total reviews found. ${backendLimitedMessage}`
+    : "";
   const aiSummary =
     insights?.aiSummary ??
     (insightStatus === "loading"
@@ -778,13 +1465,11 @@ function FreeDashboard({ business, insights, insightStatus, insightError, google
         </div>
 
         <div className="metricCard">
-          <p>{googleUserId ? "Reviews Analyzed" : "Public Review Texts Available"}</p>
-          <h2><span className="metricIcon chart">📈</span>{analyzedReviewTexts}</h2>
+          <p>{reviewsMetricLabel}</p>
+          <h2><span className="metricIcon chart">📈</span>{reviewsMetricValue}</h2>
           {insights && (
             <small>
-              {googleUserId
-                ? `${analyzedReviewTexts} of ${totalGoogleReviews} reviews analyzed`
-                : `${totalGoogleReviews} total reviews found. The Free Snapshot analyzes only a limited sample. Upgrade to Premium to analyze all available reviews, uncover trends, and unlock deeper AI insights.`}
+              {reviewsMetricDetail}
             </small>
           )}
         </div>
@@ -828,8 +1513,55 @@ function FreeDashboard({ business, insights, insightStatus, insightError, google
   );
 }
 
-function PremiumDashboard({ business, insights, insightStatus, insightError, googleUserId, signOut }) {
+function PremiumDashboard({
+  business,
+  insights,
+  insightStatus,
+  insightError,
+  googleUserId,
+  signOut,
+  currentUser,
+  authToken,
+  startSignup,
+  openBillingPortal,
+  billingStatus,
+  billingError,
+  googleBusinessStatus,
+  googleBusinessMessage,
+  googleBusinessLocations,
+  selectedGoogleLocationName,
+  setSelectedGoogleLocationName,
+  startGoogleBusinessProfileConnection,
+  loadGoogleBusinessLocations,
+  syncGoogleBusinessProfileReviews,
+}) {
   const [activeSection, setActiveSection] = useState("overview");
+
+  if (!currentUser?.hasPremiumAccess) {
+    return (
+      <section className="dashboardPage">
+        <div className="dashboardHeader">
+          <div>
+            <p className="eyebrow">Premium Locked</p>
+            <h1>Upgrade to unlock Premium Intelligence</h1>
+            <p className="muted">
+              Premium features require an active $20/month subscription. Free Snapshot features are still available.
+            </p>
+            {billingError && <p className="searchError">{billingError}</p>}
+          </div>
+
+          <div className="freeHeaderActions">
+            <button className="goldButton" onClick={() => startSignup("premium")} disabled={billingStatus === "loading"}>
+              {billingStatus === "loading" ? "Opening Stripe..." : "Unlock Premium"}
+            </button>
+            <button className="freeSignOutButton" onClick={signOut}>
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="premiumDashboard">
@@ -879,33 +1611,81 @@ function PremiumDashboard({ business, insights, insightStatus, insightError, goo
         <button className="signOutButton" onClick={signOut}>
           Sign Out
         </button>
+        <button className="signOutButton" onClick={openBillingPortal} disabled={billingStatus === "loading"}>
+          Manage Billing
+        </button>
       </aside>
 
       <main className="premiumContent">
-        {activeSection === "overview" && <OverviewView business={business} insights={insights} insightStatus={insightStatus} insightError={insightError} googleUserId={googleUserId} />}
+        {activeSection === "overview" && (
+          <OverviewView
+            business={business}
+            insights={insights}
+            insightStatus={insightStatus}
+            insightError={insightError}
+            googleUserId={googleUserId}
+            currentUser={currentUser}
+            googleBusinessStatus={googleBusinessStatus}
+            googleBusinessMessage={googleBusinessMessage}
+            googleBusinessLocations={googleBusinessLocations}
+            selectedGoogleLocationName={selectedGoogleLocationName}
+            setSelectedGoogleLocationName={setSelectedGoogleLocationName}
+            startGoogleBusinessProfileConnection={startGoogleBusinessProfileConnection}
+            loadGoogleBusinessLocations={loadGoogleBusinessLocations}
+            syncGoogleBusinessProfileReviews={syncGoogleBusinessProfileReviews}
+          />
+        )}
         {activeSection === "sentiment" && <SentimentView business={business} insights={insights} />}
         {activeSection === "reviews" && <ReviewsView business={business} insights={insights} />}
         {activeSection === "trends" && <TrendsView business={business} insights={insights} />}
         {activeSection === "sources" && <SourcesView business={business} insights={insights} />}
-        {activeSection === "reports" && <ReportsView business={business} insights={insights} />}
+        {activeSection === "reports" && <ReportsView business={business} insights={insights} currentUser={currentUser} authToken={authToken} startSignup={startSignup} />}
       </main>
     </section>
   );
 }
 
-function OverviewView({ business, insights, insightStatus, insightError, googleUserId }) {
+function OverviewView({
+  business,
+  insights,
+  insightStatus,
+  insightError,
+  googleUserId,
+  currentUser,
+  googleBusinessStatus,
+  googleBusinessMessage,
+  googleBusinessLocations,
+  selectedGoogleLocationName,
+  setSelectedGoogleLocationName,
+  startGoogleBusinessProfileConnection,
+  loadGoogleBusinessLocations,
+  syncGoogleBusinessProfileReviews,
+}) {
   const reviewCount = insights?.reviewCount ?? business.reviewCount ?? business.reviews ?? 0;
-  const pulseScore = insights?.pulseScore ?? getPulseScoreFromRating(insights?.rating ?? business.rating);
+  const pulseScore = insights?.sentimentScore ?? insights?.pulseScore ?? getPulseScoreFromRating(insights?.rating ?? business.rating);
   const pulseLabel = insights?.pulseLabel ?? getPulseLabel(pulseScore);
   const sentimentBreakdown = insights?.sentimentBreakdown ?? { positive: 0, neutral: 0, negative: 0 };
   const notEnoughMessage = insights?.notEnoughReviewDataMessage ?? "Not enough review data available yet.";
   const complimentThemes = insights?.topCompliments ?? [];
   const complaintThemes = insights?.topComplaints ?? [];
+  const trendSeries = getMonthlyTrendSeries(insights);
+  const sourceBreakdown = insights?.sourceBreakdown ?? {};
+  const googleReviewCount =
+    sourceBreakdown.google_business_profile ?? sourceBreakdown.google_places ?? reviewCount;
   const strongestComplaint = complaintThemes[0];
   const complaintPercent =
     strongestComplaint && insights?.reviewsAnalyzed
       ? `${Math.round((strongestComplaint.count / insights.reviewsAnalyzed) * 100)}%`
       : "0%";
+  const isGoogleConnected = Boolean(currentUser?.googleBusinessProfileConnected || googleUserId);
+  const matchingLocation = googleBusinessLocations.find(
+    (location) => location.locationName === selectedGoogleLocationName,
+  );
+  const syncDisabled =
+    googleBusinessStatus === "loading" ||
+    googleBusinessStatus === "syncing" ||
+    (googleBusinessLocations.length > 0 && !selectedGoogleLocationName) ||
+    matchingLocation?.verificationState === "NOT_VERIFIED";
 
   return (
     <>
@@ -916,11 +1696,61 @@ function OverviewView({ business, insights, insightStatus, insightError, googleU
           <p className="muted">
             {business.location} <span aria-hidden="true">·</span> {reviewCount} reviews <span aria-hidden="true">·</span> {insights?.businessType ?? business.category}
           </p>
-          {!googleUserId && (
-            <p className="limitedReviewNotice">
-              Google Places only provides a limited public review sample. Connect Google Business Profile to analyze all Google reviews.
-            </p>
-          )}
+          <div className="gbpConnectPanel">
+            <div>
+              <span className={`gbpStatusDot ${isGoogleConnected ? "connected" : ""}`}></span>
+              <strong>{isGoogleConnected ? "Google Business Profile Connected" : "Google Business Profile Not Connected"}</strong>
+              <p>
+                {isGoogleConnected
+                  ? "Pull paginated reviews from your verified Google Business Profile location for Premium analysis."
+                  : "Connect Google Business Profile to unlock more than the limited public review sample."}
+              </p>
+              {googleBusinessMessage && <p className="gbpStatusMessage">{googleBusinessMessage}</p>}
+            </div>
+
+            <div className="gbpActions">
+              {!isGoogleConnected ? (
+                <button
+                  className="goldButton"
+                  onClick={startGoogleBusinessProfileConnection}
+                  disabled={googleBusinessStatus === "loading"}
+                >
+                  {googleBusinessStatus === "loading" ? "Connecting..." : "Connect Google Business Profile"}
+                </button>
+              ) : (
+                <>
+                  <button
+                    className="outlineButton"
+                    onClick={loadGoogleBusinessLocations}
+                    disabled={googleBusinessStatus === "loading" || googleBusinessStatus === "syncing"}
+                  >
+                    {googleBusinessStatus === "loading" ? "Loading..." : "Load Managed Locations"}
+                  </button>
+
+                  {googleBusinessLocations.length > 0 && (
+                    <select
+                      value={selectedGoogleLocationName}
+                      onChange={(event) => setSelectedGoogleLocationName(event.target.value)}
+                    >
+                      {googleBusinessLocations.map((location) => (
+                        <option key={location.locationName} value={location.locationName}>
+                          {location.title ?? "Unnamed Location"} - {location.verificationState}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  <button
+                    className="goldButton"
+                    onClick={syncGoogleBusinessProfileReviews}
+                    disabled={syncDisabled}
+                  >
+                    {googleBusinessStatus === "syncing" ? "Pulling Reviews..." : "Sync Google Reviews"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
           {insightError && <p className="searchError">{insightError}</p>}
         </div>
 
@@ -944,7 +1774,7 @@ function OverviewView({ business, insights, insightStatus, insightError, googleU
       <div className="premiumDashboardGrid">
         <DashboardWidget title="Review Sources" className="sourcesWidget">
           <div className="sourceGrid dashboardSources">
-            <SourceCard source="Google Reviews" count={reviewCount || "Coming Soon"} />
+            <SourceCard source="Google Reviews" count={googleReviewCount || "Coming Soon"} />
             <SourceCard source="Facebook Reviews" count="Coming Soon" />
             <SourceCard source="Yelp Reviews" count="Coming Soon" />
             <SourceCard source="TripAdvisor" count="Coming Soon" />
@@ -985,7 +1815,16 @@ function OverviewView({ business, insights, insightStatus, insightError, googleU
 
         <DashboardWidget title="Complaint Trends" className="trendsWidget">
           <p className="alert">{insights?.trendSummary ?? notEnoughMessage}</p>
-          <LineGraph />
+          {trendSeries ? (
+            <TrendLineGraph
+              values={trendSeries.values}
+              labels={trendSeries.labels}
+              max={Math.max(5, ...trendSeries.values)}
+              suffix=""
+            />
+          ) : (
+            <p className="emptyInsightMessage">{notEnoughMessage}</p>
+          )}
         </DashboardWidget>
 
         <DashboardWidget title="Executive Reports Preview" className="reportsPreviewWidget">
@@ -1074,7 +1913,7 @@ function SentimentView({ business, insights }) {
   const sentiment = insights?.sentimentBreakdown ?? { positive: 0, neutral: 0, negative: 0 };
   const totalSentiment = sentiment.positive + sentiment.neutral + sentiment.negative;
   const percent = (value) => (totalSentiment ? `${Math.round((value / totalSentiment) * 100)}%` : "0%");
-  const pulseScore = insights?.pulseScore ?? getPulseScoreFromRating(insights?.rating ?? business.rating);
+  const pulseScore = insights?.sentimentScore ?? insights?.pulseScore ?? getPulseScoreFromRating(insights?.rating ?? business.rating);
 
   return (
     <>
@@ -1159,6 +1998,7 @@ function TrendsView({ business, insights }) {
   const rating = insights?.rating ?? business.rating ?? 0;
   const reviewCount = insights?.reviewCount ?? business.reviewCount ?? business.reviews ?? 0;
   const complaintCount = insights?.topComplaints?.reduce((total, theme) => total + theme.count, 0) ?? 0;
+  const trendSeries = getMonthlyTrendSeries(insights);
 
   return (
     <>
@@ -1175,12 +2015,16 @@ function TrendsView({ business, insights }) {
       <div className="trendsPageGrid">
         <DashboardWidget title="Review Trend Graph">
           <p className="trendNote">{insights?.trendSummary ?? notEnoughMessage}</p>
-          <TrendLineGraph
-            values={[reviewCount]}
-            labels={["Google"]}
-            max={Math.max(10, reviewCount)}
-            suffix=""
-          />
+          {trendSeries ? (
+            <TrendLineGraph
+              values={trendSeries.values}
+              labels={trendSeries.labels}
+              max={Math.max(10, ...trendSeries.values)}
+              suffix=""
+            />
+          ) : (
+            <p className="emptyInsightMessage">{notEnoughMessage}</p>
+          )}
         </DashboardWidget>
 
         <DashboardWidget title="Rating Trend Graph">
@@ -1262,30 +2106,293 @@ function SourcesView({ business, insights }) {
   );
 }
 
-function ReportsView({ business, insights }) {
+function ReportsView({ business, insights, currentUser, authToken, startSignup }) {
   const [selectedReport, setSelectedReport] = useState("Weekly");
   const [selectedNotification, setSelectedNotification] = useState("Weekly");
+  const [selectedReportDetail, setSelectedReportDetail] = useState(null);
+  const [emailPreference, setEmailPreference] = useState(null);
+  const [isEditingEmailPreference, setIsEditingEmailPreference] = useState(false);
+  const [notificationEmail, setNotificationEmail] = useState(currentUser?.email ?? "");
+  const [reportStatus, setReportStatus] = useState("idle");
+  const [reportError, setReportError] = useState("");
+  const [reportMessage, setReportMessage] = useState("");
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailExportAddress, setEmailExportAddress] = useState(currentUser?.email ?? "");
+  const [emailExportError, setEmailExportError] = useState("");
   const notEnoughMessage = insights?.notEnoughReviewDataMessage ?? "Not enough review data available yet.";
-  const topCompliment = insights?.topCompliments?.[0]?.label ?? notEnoughMessage;
-  const topComplaint = insights?.topComplaints?.[0]?.label ?? notEnoughMessage;
+  const businessProfileId = insights?.businessProfileId;
+  const canUseReports = currentUser?.hasPremiumAccess;
 
   const reportOptions = [
     {
       title: "Daily",
-      cadence: "Every morning",
       description: "A short pulse report covering yesterday's reviews, urgent complaints, and rating changes.",
     },
     {
       title: "Weekly",
-      cadence: "Every Monday",
       description: "A manager summary with source performance, sentiment shifts, and top action items.",
     },
     {
       title: "Monthly",
-      cadence: "First day of month",
       description: "An executive rollup with trends, complaint categories, source comparison, and recommendations.",
     },
   ];
+  const selectedReportOption = reportOptions.find((option) => option.title === selectedReport);
+  const selectedCadence = selectedReport.toUpperCase();
+
+  const loadEmailPreference = async () => {
+    if (!authToken || !businessProfileId || !canUseReports) {
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({ businessProfileId });
+      const response = await fetch(`${API_BASE_URL}/api/reports/preferences/email?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message ?? "Unable to load email notification setup.");
+      }
+
+      setEmailPreference(data.preference ?? null);
+      if (data.preference) {
+        setSelectedNotification(toTitleCase(data.preference.frequency));
+        setNotificationEmail(data.preference.destinationEmail);
+      }
+    } catch (error) {
+      setReportError(error.message);
+    }
+  };
+
+  useEffect(() => {
+    loadEmailPreference();
+  }, [authToken, businessProfileId, canUseReports]);
+
+  const generateSelectedReport = async () => {
+    if (!canUseReports) {
+      return;
+    }
+
+    if (!businessProfileId) {
+      setReportError("Confirm a business and load review insights before generating reports.");
+      return;
+    }
+
+    setReportStatus("loading");
+    setReportError("");
+    setReportMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reports`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          businessProfileId,
+          cadence: selectedCadence,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message ?? "Unable to generate report.");
+      }
+
+      setSelectedReportDetail(data.report);
+      setReportMessage(`${selectedReport} report generated.`);
+      setReportStatus("success");
+    } catch (error) {
+      setReportError(error.message);
+      setReportStatus("error");
+    }
+  };
+
+  const downloadCurrentReportPdf = async () => {
+    if (!selectedReportDetail?.id) {
+      setReportError("Generate a report before downloading or emailing it.");
+      return;
+    }
+
+    setReportStatus("loading");
+    setReportError("");
+    setReportMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reports/${selectedReportDetail.id}/export/pdf`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error?.message ?? "Unable to export PDF.");
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = reportPdfFilename(selectedReportDetail);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setReportMessage("PDF export downloaded.");
+      setReportStatus("success");
+    } catch (error) {
+      setReportError(error.message);
+      setReportStatus("error");
+    }
+  };
+
+  const openEmailReportModal = () => {
+    if (!selectedReportDetail?.id) {
+      setReportError("Generate a report before emailing it.");
+      return;
+    }
+    setEmailExportAddress(currentUser?.email ?? "");
+    setEmailExportError("");
+    setEmailModalOpen(true);
+  };
+
+  const emailCurrentReport = async () => {
+    if (!selectedReportDetail?.id) {
+      setEmailExportError("Generate a report before emailing it.");
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailExportAddress)) {
+      setEmailExportError("Enter a valid email address.");
+      return;
+    }
+
+    setReportStatus("loading");
+    setReportError("");
+    setReportMessage("");
+    setEmailExportError("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reports/${selectedReportDetail.id}/email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ destinationEmail: emailExportAddress }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error("Email export could not be set. Please try again.");
+      }
+
+      setSelectedReportDetail(data.report ?? selectedReportDetail);
+      setReportMessage(data.message ?? "Email delivery is not configured yet. Your report export request was saved.");
+      setEmailModalOpen(false);
+      setReportStatus("success");
+    } catch (error) {
+      setEmailExportError(error.message);
+      setReportStatus("error");
+    }
+  };
+
+  const saveEmailPreference = async () => {
+    if (!businessProfileId) {
+      setReportError("Confirm a business before saving email notifications.");
+      return;
+    }
+
+    setReportStatus("loading");
+    setReportError("");
+    setReportMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reports/preferences/email`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          businessProfileId,
+          frequency: selectedNotification.toUpperCase(),
+          destinationEmail: notificationEmail,
+          enabled: true,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message ?? "Unable to save email notification setup.");
+      }
+
+      setEmailPreference(data.preference);
+      setIsEditingEmailPreference(false);
+      setReportMessage("Email notification setup saved.");
+      setReportStatus("success");
+    } catch (error) {
+      setReportError(error.message);
+      setReportStatus("error");
+    }
+  };
+
+  const disableEmailPreference = async () => {
+    setReportStatus("loading");
+    setReportError("");
+    setReportMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reports/preferences/email`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ businessProfileId }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message ?? "Unable to disable email notifications.");
+      }
+
+      setEmailPreference(data.preference);
+      setIsEditingEmailPreference(false);
+      setReportMessage("Email notifications disabled.");
+      setReportStatus("success");
+    } catch (error) {
+      setReportError(error.message);
+      setReportStatus("error");
+    }
+  };
+
+  if (!canUseReports) {
+    return (
+      <>
+        <div className="premiumTop">
+          <div>
+            <p className="eyebrow">Reports</p>
+            <h1>Executive Reports</h1>
+            <p className="muted">
+              Daily, weekly, and monthly reports are included with Premium.
+            </p>
+          </div>
+        </div>
+
+        <DashboardWidget title="Reports are a Premium feature">
+          <p className="emptyInsightMessage">
+            Upgrade to Premium to generate and save review intelligence reports for {business.name}.
+          </p>
+          <button className="goldButton" onClick={() => startSignup("premium")}>
+            Unlock Premium Reports
+          </button>
+        </DashboardWidget>
+      </>
+    );
+  }
 
   return (
     <>
@@ -1294,7 +2401,7 @@ function ReportsView({ business, insights }) {
           <p className="eyebrow">Reports</p>
           <h1>Executive Reports</h1>
           <p className="muted">
-            Choose report timing, preview the email summary, and prepare exports for {business.name}.
+            Generate, export, and schedule review intelligence reports for {business.name}.
           </p>
         </div>
       </div>
@@ -1306,34 +2413,27 @@ function ReportsView({ business, insights }) {
               <ReportOption
                 key={option.title}
                 title={option.title}
-                cadence={option.cadence}
                 description={option.description}
                 selected={selectedReport === option.title}
                 onSelect={() => setSelectedReport(option.title)}
               />
             ))}
           </div>
+          <div className="selectedExport">
+            Selected report: <strong>{selectedReportOption?.title} report</strong>
+          </div>
+          {reportError && <p className="searchError">{reportError}</p>}
+          <button className="enrollButton" type="button" onClick={generateSelectedReport} disabled={reportStatus === "loading"}>
+            {reportStatus === "loading" ? "Generating Report..." : `Generate ${selectedReport} Report`}
+          </button>
         </DashboardWidget>
 
-        <DashboardWidget title="Email Report Preview">
-          <div className="emailPreview">
-            <div className="emailHeader">
-              <span>To: owner@palmbusiness.com</span>
-              <span>Subject: {selectedReport} Review Intel Care Report</span>
-            </div>
-
-            <div className="emailBody">
-              <h3>{business.name} {selectedReport} Review Summary</h3>
-              <p>{insights?.aiSummary ?? notEnoughMessage}</p>
-
-              <div className="reportMock">
-                <div className="reportLine good">Customers mention positively: {topCompliment}</div>
-                <div className="reportLine bad">Customers mention negatively: {topComplaint}</div>
-                <div className="reportLine">Recommendation: {insights?.recommendation ?? notEnoughMessage}</div>
-                <div className="reportLine">Business type: {insights?.businessType ?? business.category ?? "Unknown"}</div>
-              </div>
-            </div>
-          </div>
+        <DashboardWidget title="Report Detail">
+          {selectedReportDetail ? (
+            <ReportDetail report={selectedReportDetail} />
+          ) : (
+            <p className="emptyInsightMessage">Generate a {selectedReport.toLowerCase()} report to view its details here.</p>
+          )}
         </DashboardWidget>
 
         <DashboardWidget title="Download / Export Options">
@@ -1341,99 +2441,224 @@ function ReportsView({ business, insights }) {
             Selected export: <strong>{selectedReport} report</strong>
           </div>
           <div className="exportActions">
-            <button>Download {selectedReport} PDF</button>
-            <button>Export {selectedReport} CSV</button>
-            <button>Email {selectedReport} Report</button>
+            <button type="button" onClick={downloadCurrentReportPdf}>Download PDF</button>
+            <button type="button" onClick={openEmailReportModal}>Email Report</button>
           </div>
-          <p className="exportNote">
-            Export buttons are placeholders for now. Backend report generation can connect here later.
-          </p>
+          {reportMessage && <p className="exportNote">{reportMessage}</p>}
+          {reportError && <p className="searchError">{reportError}</p>}
         </DashboardWidget>
 
         <DashboardWidget title="Email Notification Setup">
           <div className="notificationSetup">
-            <div>
-              <label htmlFor="reportEmail">Send review performance reports to</label>
-              <input id="reportEmail" placeholder="owner@palmbusiness.com" />
-            </div>
-
-            <div>
-              <p className="notificationLabel">Choose email notification frequency</p>
-              <div className="notificationToggleGrid">
-                {reportOptions.map((option) => (
-                  <button
-                    className={selectedNotification === option.title ? "notificationToggle active" : "notificationToggle"}
-                    key={option.title}
-                    onClick={() => setSelectedNotification(option.title)}
-                    type="button"
-                  >
-                    <span>{option.title}</span>
-                    <strong>{selectedNotification === option.title ? "Selected" : "Choose"}</strong>
-                    <small>{option.cadence}</small>
-                  </button>
-                ))}
+            {emailPreference?.enabled && !isEditingEmailPreference ? (
+              <div className="activeEmailSetup">
+                <div className="selectedExport">
+                  Active notifications: <strong>{toTitleCase(emailPreference.frequency)}</strong>
+                  <span>{emailPreference.destinationEmail}</span>
+                </div>
+                <div className="exportActions">
+                  <button type="button" onClick={() => setIsEditingEmailPreference(true)}>Update Setup</button>
+                  <button type="button" onClick={disableEmailPreference}>Disable Notifications</button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <>
+                <div>
+                  <label htmlFor="reportEmail">Send review performance reports to</label>
+                  <input
+                    id="reportEmail"
+                    placeholder="owner@example.com"
+                    value={notificationEmail}
+                    onChange={(event) => setNotificationEmail(event.target.value)}
+                  />
+                </div>
 
-            <div className="selectedExport">
-              Email notifications: <strong>{selectedNotification}</strong>
-            </div>
+                <div>
+                  <p className="notificationLabel">Choose email notification frequency</p>
+                  <div className="notificationToggleGrid">
+                    {reportOptions.map((option) => (
+                      <button
+                        className={selectedNotification === option.title ? "notificationToggle active" : "notificationToggle"}
+                        key={option.title}
+                        onClick={() => setSelectedNotification(option.title)}
+                        type="button"
+                      >
+                        <span>{option.title}</span>
+                        <strong>{selectedNotification === option.title ? "Selected" : "Choose"}</strong>
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            <button className="enrollButton" type="button">
-              Enroll in {selectedNotification} Email Notifications
-            </button>
+                <div className="selectedExport">
+                  Email notifications: <strong>{selectedNotification}</strong>
+                </div>
+
+                <button className="enrollButton" type="button" onClick={saveEmailPreference}>
+                  Save {selectedNotification} Email Preference
+                </button>
+              </>
+            )}
           </div>
         </DashboardWidget>
       </div>
+
+      {emailModalOpen && (
+        <div className="reportModalBackdrop" onClick={() => setEmailModalOpen(false)}>
+          <div className="reportEmailModal" onClick={(event) => event.stopPropagation()}>
+            <div className="reportModalHeader">
+              <h2>Email Report</h2>
+              <button type="button" onClick={() => setEmailModalOpen(false)}>X</button>
+            </div>
+            <label htmlFor="emailExportAddress">Send report to</label>
+            <input
+              id="emailExportAddress"
+              value={emailExportAddress}
+              onChange={(event) => setEmailExportAddress(event.target.value)}
+              placeholder="owner@example.com"
+              type="email"
+            />
+            {emailExportError && <p className="searchError">{emailExportError}</p>}
+            <div className="reportModalActions">
+              <button className="signupSecondary" type="button" onClick={() => setEmailModalOpen(false)}>
+                Cancel
+              </button>
+              <button className="signupPrimary" type="button" onClick={emailCurrentReport} disabled={reportStatus === "loading"}>
+                {reportStatus === "loading" ? "Setting Export..." : "Send"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
-function LineGraph() {
+function formatDate(value) {
+  if (!value) return "Not available";
+  return new Date(value).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function toTitleCase(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+}
+
+function reportPdfFilename(report) {
+  const businessName = report?.businessName ?? report?.rawPayload?.business?.name ?? "Review Intel Care";
+  const safeBusinessName = businessName.replace(/[\\/:*?"<>|]/g, "").trim() || "Review Intel Care";
+  return `${safeBusinessName}-${String(report?.cadence ?? "report").toLowerCase()}-report.pdf`;
+}
+
+function ReportDetail({ report }) {
+  const content = report.rawPayload ?? {};
+  const sections = content.sections ?? {};
+  const overview = sections.overview ?? {};
+  const positiveThemes = sections.positiveThemes ?? [];
+  const negativeThemes = sections.negativeThemes ?? [];
+  const actionItems = sections.actionItems ?? [];
+  const sentiment = sections.sentiment ?? { positive: 0, neutral: 0, negative: 0 };
+
+  const reportEmpty = (icon, message) => (
+    <div className="reportEmptyState">
+      <span>{icon}</span>
+      <p>{message}</p>
+    </div>
+  );
+
   return (
-    <div className="fixedLineChart">
-      <svg viewBox="0 0 700 330" className="fixedLineSvg">
-        <line x1="70" y1="40" x2="70" y2="260" />
-        <line x1="70" y1="260" x2="650" y2="260" />
+    <div className="reportDetail">
+      <div className="reportDetailHeader">
+        <div>
+          <span className="reportIconChip">▣</span>
+          <strong>{report.title}</strong>
+        </div>
+        <span>{formatDate(report.dateRangeStart)} to {formatDate(report.dateRangeEnd)}</span>
+      </div>
 
-        <line x1="70" y1="40" x2="650" y2="40" className="grid" />
-        <line x1="70" y1="84" x2="650" y2="84" className="grid" />
-        <line x1="70" y1="128" x2="650" y2="128" className="grid" />
-        <line x1="70" y1="172" x2="650" y2="172" className="grid" />
-        <line x1="70" y1="216" x2="650" y2="216" className="grid" />
-        <line x1="70" y1="260" x2="650" y2="260" className="grid" />
+      <div className="reportMetricGrid">
+        <div className="reportMetricCard">
+          <i>★</i>
+          <span>Overall Rating</span>
+          <strong>{overview.rating ?? "N/A"}</strong>
+          <small>Average public rating</small>
+        </div>
+        <div className="reportMetricCard">
+          <i>●</i>
+          <span>Customer Score</span>
+          <strong>{overview.customerScore ?? "N/A"}</strong>
+          <small>Review intelligence score</small>
+        </div>
+        <div className="reportMetricCard">
+          <i>↗</i>
+          <span>Reviews Analyzed</span>
+          <strong>{overview.reviewsAnalyzed ?? 0}</strong>
+          <small>Reviews used in this report</small>
+        </div>
+        <div className="reportMetricCard">
+          <i>◐</i>
+          <span>Sentiment</span>
+          <strong>{sentiment.positive ?? 0} / {sentiment.neutral ?? 0} / {sentiment.negative ?? 0}</strong>
+          <small>Positive / Neutral / Negative</small>
+        </div>
+      </div>
 
-        <text x="28" y="45">50</text>
-        <text x="28" y="89">40</text>
-        <text x="28" y="133">30</text>
-        <text x="28" y="177">20</text>
-        <text x="28" y="221">10</text>
-        <text x="36" y="265">0</text>
+      <div className="reportDetailGrid">
+        <div className="reportSectionBlock">
+          <h3><span>◆</span>Summary</h3>
+          {overview.summary || report.previewBody ? (
+            <p>{overview.summary ?? report.previewBody}</p>
+          ) : (
+            reportEmpty("◆", "Not enough review data available yet.")
+          )}
+        </div>
 
-        <polyline
-          points="145,207 295,154 445,80 595,112"
-          fill="none"
-          stroke="#111411"
-          strokeWidth="7"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <div className="reportSectionBlock">
+          <h3><span>●</span>Positive Themes</h3>
+          {positiveThemes.length ? (
+            positiveThemes.map((theme) => <MentionRow key={theme.label} label={theme.label} value={theme.value ?? ""} />)
+          ) : (
+            reportEmpty("●", "No repeated positive themes yet.")
+          )}
+        </div>
 
-        <circle cx="145" cy="207" r="13" />
-        <circle cx="295" cy="154" r="13" />
-        <circle cx="445" cy="80" r="13" />
-        <circle cx="595" cy="112" r="13" />
+        <div className="reportSectionBlock">
+          <h3><span>●</span>Negative Themes</h3>
+          {negativeThemes.length ? (
+            negativeThemes.map((theme) => <MentionRow key={theme.label} label={theme.label} value={theme.value ?? ""} />)
+          ) : (
+            reportEmpty("●", "No repeated negative themes yet.")
+          )}
+        </div>
 
-        <text x="145" y="187" className="valueText">12</text>
-        <text x="295" y="134" className="valueText">24</text>
-        <text x="445" y="60" className="valueText">41</text>
-        <text x="595" y="92" className="valueText">34</text>
+        <div className="reportSectionBlock">
+          <h3><span>✓</span>Suggested Action Items</h3>
+          {actionItems.length ? (
+            actionItems.map((item, index) => <MentionRow key={`${item}-${index}`} label={item} value="" />)
+          ) : (
+            reportEmpty("✓", "No action items available yet.")
+          )}
+        </div>
 
-        <text x="145" y="305" className="monthText">Jan</text>
-        <text x="295" y="305" className="monthText">Feb</text>
-        <text x="445" y="305" className="monthText">Mar</text>
-        <text x="595" y="305" className="monthText">Apr</text>
-      </svg>
+        <div className="reportSectionBlock">
+          <h3><span>↗</span>Trend Summary</h3>
+          {sections.trendSummary ? (
+            <p>{sections.trendSummary}</p>
+          ) : (
+            reportEmpty("↗", "Not enough historical data available for trend analysis yet.")
+          )}
+        </div>
+
+        <div className="reportSectionBlock">
+          <h3><span>✉</span>Email Delivery</h3>
+          <p>{report.emailStatus ?? "Not configured"}. Email sending will be added later.</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1446,11 +2671,12 @@ function TrendLineGraph({ values, labels, min = 0, max, suffix }) {
   const xEnd = 650;
   const yTop = 40;
   const yBottom = 260;
-  const xStep = (xEnd - xStart) / (values.length - 1);
+  const singlePointX = xStart + (xEnd - xStart) / 2;
+  const xStep = values.length > 1 ? (xEnd - xStart) / (values.length - 1) : 0;
 
   const points = values
     .map((value, index) => {
-      const x = xStart + xStep * index;
+      const x = values.length > 1 ? xStart + xStep * index : singlePointX;
       const y = yBottom - ((value - chartMin) / range) * (yBottom - yTop);
       return `${x},${y}`;
     })
@@ -1484,7 +2710,7 @@ function TrendLineGraph({ values, labels, min = 0, max, suffix }) {
         />
 
         {values.map((value, index) => {
-          const x = xStart + xStep * index;
+          const x = values.length > 1 ? xStart + xStep * index : singlePointX;
           const y = yBottom - ((value - chartMin) / range) * (yBottom - yTop);
 
           return (
@@ -1594,7 +2820,7 @@ function SourceMetricRow({ source, value, width }) {
   );
 }
 
-function ReportOption({ title, cadence, description, selected, onSelect }) {
+function ReportOption({ title, description, selected, onSelect }) {
   return (
     <button
       className={selected ? "reportOption selected" : "reportOption"}
@@ -1603,7 +2829,7 @@ function ReportOption({ title, cadence, description, selected, onSelect }) {
     >
       <div>
         <strong>{title}</strong>
-        <span>{selected ? "Selected" : cadence}</span>
+        <span>{selected ? "Selected" : "Choose"}</span>
       </div>
       <p>{description}</p>
     </button>

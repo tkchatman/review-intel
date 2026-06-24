@@ -831,6 +831,84 @@ button {
   text-transform: none;
 }
 
+.gbpConnectPanel {
+  background: rgba(255,255,255,0.72);
+  border: 1px solid rgba(199,162,58,0.28);
+  border-radius: 18px;
+  box-shadow: 0 14px 36px rgba(17,20,17,0.08);
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  margin-top: 18px;
+  padding: 18px;
+}
+
+.gbpConnectPanel strong {
+  color: #111827;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.gbpConnectPanel p {
+  color: #5b667a;
+  font-weight: 700;
+  line-height: 1.45;
+  margin: 8px 0 0;
+}
+
+.gbpStatusDot {
+  background: radial-gradient(circle at 35% 30%, #ffd96a, #d49a1f);
+  border-radius: 50%;
+  display: inline-block;
+  height: 12px;
+  width: 12px;
+}
+
+.gbpStatusDot.connected {
+  background: radial-gradient(circle at 35% 30%, #7af0a0, #24b66a);
+}
+
+.gbpStatusMessage {
+  color: #111827 !important;
+  font-size: 14px;
+}
+
+.gbpActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.gbpActions button,
+.gbpActions select {
+  min-height: 44px;
+}
+
+.gbpActions select {
+  background: white;
+  border: 1px solid #ded8cc;
+  border-radius: 12px;
+  color: #111827;
+  font-weight: 800;
+  max-width: 280px;
+  padding: 0 12px;
+}
+
+.outlineButton {
+  background: white;
+  border: 1px solid rgba(17,20,17,0.16);
+  border-radius: 12px;
+  color: #111411;
+  font-weight: 900;
+  padding: 13px 18px;
+}
+
 .freeDashboardGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1064,7 +1142,7 @@ button {
   }
 
   .sidebar {
-    display: none;
+    display: flex;
   }
 
   .premiumContent {
@@ -1847,8 +1925,12 @@ button {
 
 .exportActions {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
   gap: 14px;
+  justify-content: center;
+  max-width: 620px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .selectedExport {
@@ -1869,6 +1951,197 @@ button {
   border-radius: 14px;
   padding: 16px;
   font-size: 15px;
+  width: 100%;
+}
+
+.reportDetail,
+.reportDetailGrid {
+  display: grid;
+  gap: 14px;
+}
+
+.reportDetailHeader {
+  background: #111411;
+  border-radius: 18px;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  padding: 18px 20px;
+}
+
+.reportDetailHeader div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.reportDetailHeader strong {
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.reportDetailHeader > span {
+  color: #d8dde8;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.reportIconChip,
+.reportMetricCard i,
+.reportSectionBlock h3 span,
+.reportEmptyState span {
+  align-items: center;
+  background: #c7a23a;
+  border-radius: 999px;
+  color: #111411;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-style: normal;
+  font-weight: 900;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.reportMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.reportMetricCard,
+.reportSectionBlock {
+  background: #f7f7f2;
+  border: 1px solid #e4e7ec;
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.reportMetricCard {
+  border-top: 4px solid #c7a23a;
+  box-shadow: 0 12px 30px rgba(17, 20, 17, 0.08);
+}
+
+.reportMetricCard span,
+.reportMetricCard small {
+  color: #667085;
+  font-weight: 900;
+}
+
+.reportMetricCard span,
+.reportMetricCard strong,
+.reportMetricCard small {
+  display: block;
+}
+
+.reportMetricCard strong {
+  color: #111827;
+  font-size: 28px;
+  margin-top: 8px;
+}
+
+.reportDetailGrid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.reportDetailGrid h3 {
+  align-items: center;
+  border-bottom: 1px solid #e4e7ec;
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+}
+
+.reportDetailGrid p {
+  color: #667085;
+  line-height: 1.6;
+}
+
+.reportSectionBlock {
+  background: #fff;
+}
+
+.reportEmptyState {
+  align-items: center;
+  background: #f7f7f2;
+  border: 1px dashed #d0d5dd;
+  border-radius: 14px;
+  color: #667085;
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+}
+
+.reportEmptyState p {
+  font-weight: 800;
+  margin: 0;
+}
+
+.reportModalBackdrop {
+  align-items: center;
+  background: rgba(17, 20, 17, 0.56);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 50;
+}
+
+.reportEmailModal {
+  background: #f7f7f2;
+  border: 1px solid #e4e7ec;
+  border-radius: 18px;
+  box-shadow: 0 28px 80px rgba(17, 20, 17, 0.28);
+  max-width: 430px;
+  padding: 22px;
+  width: 100%;
+}
+
+.reportModalHeader {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.reportModalHeader h2 {
+  color: #111827;
+}
+
+.reportModalHeader button {
+  background: #111411;
+  border-radius: 999px;
+  color: white;
+  height: 34px;
+  width: 34px;
+}
+
+.reportEmailModal label {
+  color: #667085;
+  display: block;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+
+.reportEmailModal input {
+  border: 1px solid #d0d5dd;
+  border-radius: 14px;
+  font-size: 15px;
+  padding: 15px;
+  width: 100%;
+}
+
+.reportModalActions {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 18px;
 }
 
 .exportNote {
@@ -1899,6 +2172,8 @@ button {
   .sourceBreakdownGrid,
   .sourcesComparisonGrid,
   .reportOptionGrid,
+  .reportDetailGrid,
+  .reportMetricGrid,
   .notificationToggleGrid,
   .exportActions {
     grid-template-columns: 1fr;
@@ -1924,5 +2199,501 @@ button {
   .overviewSentimentInner {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .gbpConnectPanel {
+    grid-template-columns: 1fr;
+  }
+
+  .gbpActions {
+    justify-content: stretch;
+  }
+
+  .gbpActions button,
+  .gbpActions select {
+    width: 100%;
+  }
+}
+
+@media (max-width: 900px) {
+  body {
+    overflow-x: hidden;
+  }
+
+  .nav {
+    align-items: flex-start;
+    gap: 18px;
+    padding: 18px 5%;
+  }
+
+  .logo {
+    font-size: 22px;
+  }
+
+  .hero,
+  .previewSection,
+  .page,
+  .dashboardPage,
+  .signupPage {
+    padding-left: 5%;
+    padding-right: 5%;
+  }
+
+  .hero {
+    padding-top: 58px;
+    padding-bottom: 58px;
+  }
+
+  .heroCopy {
+    max-width: none;
+  }
+
+  .heroSearch {
+    border-radius: 20px;
+    display: grid;
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .heroSearch input,
+  .heroSearch button {
+    min-height: 52px;
+    width: 100%;
+  }
+
+  .stackedPlans,
+  .planPanel,
+  .dashboardWidget,
+  .metricCard,
+  .insightBox,
+  .summaryPanel,
+  .upgradePanel,
+  .businessCard {
+    min-width: 0;
+  }
+
+  .planHeader,
+  .dashboardHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .freeHeaderActions {
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .freeHeaderActions button,
+  .businessCard button,
+  .emptyResults button,
+  .upgradePanel button,
+  .planButton {
+    min-height: 48px;
+    width: 100%;
+  }
+
+  .resultGrid,
+  .freeDashboardGrid,
+  .dashboardColumns,
+  .premiumDashboardGrid,
+  .sentimentPageGrid,
+  .trendsPageGrid,
+  .sourcesPageGrid,
+  .reportsPageGrid,
+  .reviewsPageGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .premiumDashboard {
+    display: block;
+  }
+
+  .sidebar {
+    align-items: center;
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 14px 5%;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+
+  .sidebar h2 {
+    flex: 0 0 auto;
+    font-size: 18px;
+    margin: 0 10px 0 0;
+    white-space: nowrap;
+  }
+
+  .sidebar button {
+    flex: 0 0 auto;
+    margin: 0;
+    min-height: 44px;
+    white-space: nowrap;
+    width: auto;
+  }
+
+  .premiumContent {
+    padding: 28px 5%;
+  }
+
+  .sourceGrid,
+  .sourceBreakdownGrid,
+  .sourcesComparisonGrid,
+  .reportOptionGrid,
+  .reportDetailGrid,
+  .reportMetricGrid,
+  .notificationToggleGrid,
+  .exportActions,
+  .filterRow {
+    grid-template-columns: 1fr;
+  }
+
+  .fixedLineChart,
+  .trendChart {
+    overflow: hidden;
+    padding: 14px;
+  }
+
+  .fixedLineSvg {
+    height: 260px;
+    max-width: 100%;
+  }
+
+  .breakdownGrid,
+  .sentimentBreakdown {
+    grid-template-columns: 1fr;
+  }
+
+  .donutChart,
+  .sentimentDonut {
+    height: 150px;
+    margin: 0 auto;
+    width: 150px;
+  }
+
+  .donutChart span,
+  .sentimentDonut span {
+    height: 96px;
+    width: 96px;
+  }
+
+  .emailHeader,
+  .reportOption div,
+  .sourceMetricRow div:first-child {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  h1,
+  h2,
+  h3,
+  p,
+  span,
+  strong,
+  small {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 600px) {
+  .nav {
+    flex-direction: column;
+  }
+
+  .navActions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .navActions button {
+    min-height: 48px;
+    width: 100%;
+  }
+
+  .hero h1 {
+    font-size: 34px;
+    line-height: 1.08;
+  }
+
+  .subtitle,
+  .sectionIntro p {
+    font-size: 16px;
+  }
+
+  .sectionIntro h2,
+  .dashboardHeader h1,
+  .premiumTop h1,
+  .signupCard h1 {
+    font-size: 32px;
+  }
+
+  .planPanel,
+  .dashboardWidget,
+  .metricCard,
+  .insightBox,
+  .summaryPanel,
+  .upgradePanel,
+  .signupCard,
+  .businessCard,
+  .emptyResults {
+    border-radius: 18px;
+    padding: 20px;
+  }
+
+  .scoreCard,
+  .miniInsightCard,
+  .premiumFeature {
+    border-radius: 16px;
+    padding: 18px;
+  }
+
+  .scoreCard strong,
+  .metricCard h2 {
+    font-size: 28px;
+  }
+
+  .overviewSentimentSummary {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .overviewSentimentSummary b {
+    font-size: 32px;
+  }
+
+  .overviewLegend span {
+    font-size: 15px;
+  }
+
+  .sidebar {
+    padding: 12px 4%;
+  }
+
+  .sidebar h2 {
+    font-size: 16px;
+  }
+
+  .sidebar button {
+    padding: 11px 13px;
+  }
+
+  .premiumContent,
+  .dashboardPage,
+  .page,
+  .signupPage {
+    padding-top: 24px;
+  }
+
+  .fixedLineSvg {
+    height: 220px;
+  }
+
+  .fixedLineSvg text {
+    font-size: 12px;
+  }
+
+  .reviewsTools,
+  .signupForm,
+  .signupPlans {
+    grid-template-columns: 1fr;
+  }
+
+  .emailBody {
+    padding: 18px;
+  }
+}
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.app,
+.homepage,
+.hero,
+.hero-section,
+.pricing-section {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* FINAL MOBILE FIX */
+@media (max-width: 768px) {
+  html,
+  body,
+  #root,
+  .app,
+  .home {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .nav,
+  .hero,
+  .previewSection,
+  .page,
+  .dashboardPage,
+  .signupPage {
+    width: 100%;
+    max-width: 100%;
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .hero {
+    padding-top: 48px;
+    padding-bottom: 56px;
+  }
+
+  .heroCopy {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .hero h1 {
+    font-size: 38px;
+    line-height: 1.08;
+  }
+
+  .heroSearch {
+    width: 100%;
+    max-width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .googleConnect {
+    width: 100%;
+    max-width: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .planPanel,
+  .dashboardWidget,
+  .metricCard,
+  .insightBox,
+  .summaryPanel,
+  .upgradePanel,
+  .signupCard,
+  .businessCard,
+  .overviewSentimentSummary {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+}
+@media (max-width: 768px) {
+  .home,
+  .hero,
+  .heroCopy,
+  .previewSection,
+  .stackedPlans,
+  .planPanel,
+  .premiumVisualStack,
+  .premiumFeature,
+  .googleConnect,
+  .heroSearch {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .hero,
+  .previewSection {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+
+  .heroSearch,
+  .googleConnect {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .sourceGrid,
+  .statStrip,
+  .insightPreviewGrid,
+  .breakdownGrid {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .planHeader {
+    flex-direction: column !important;
+  }
+
+  .pricePill {
+    width: 100% !important;
+  }
+}
+/* REAL PHONE CENTERING FIX */
+html,
+body,
+#root {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100vw !important;
+  max-width: 100vw !important;
+  overflow-x: hidden !important;
+  background: #111411 !important;
+}
+
+.app,
+.home {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  margin: 0 !important;
+  overflow-x: hidden !important;
+}
+
+.nav,
+.hero,
+.previewSection {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+@media (max-width: 768px) {
+  .nav,
+  .hero,
+  .previewSection {
+    padding-left: 18px !important;
+    padding-right: 18px !important;
+  }
+
+  .heroCopy,
+  .stackedPlans,
+  .planPanel,
+  .premiumFeature,
+  .dashboardWidget,
+  .heroSearch,
+  .googleConnect {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  .hero {
+    justify-content: center !important;
+  }
+
+  .hero h1 {
+    font-size: 38px !important;
   }
 }

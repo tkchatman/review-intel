@@ -11,12 +11,18 @@ model User {
   id                  String              @id @default(cuid())
   email               String?             @unique
   name                String?
+  passwordHash        String?
   googleAccountId     String?
+  googleAccessToken   String?
   googleRefreshToken  String?
+  googleTokenExpiresAt DateTime?
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   businessProfiles    BusinessProfile[]
   reviewSyncJobs      ReviewSyncJob[]
+  subscriptions       Subscription[]
+  reports             Report[]
+  reportEmailPreferences ReportEmailPreference[]
 }
 
 model BusinessProfile {
@@ -37,6 +43,9 @@ model BusinessProfile {
   user                    User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
   reviews                 Review[]
   reviewSyncJobs          ReviewSyncJob[]
+  analysisResults         AnalysisResult[]
+  reports                 Report[]
+  reportEmailPreferences  ReportEmailPreference[]
 
   @@index([displayName])
   @@index([googlePlaceId])
@@ -86,6 +95,110 @@ model ReviewSyncJob {
   @@index([businessProfileId])
 }
 
+model AnalysisResult {
+  id                  String           @id @default(cuid())
+  businessProfileId   String
+  source              ReviewSource?
+  analysisType        String           @default("review_intelligence")
+  status              AnalysisStatus   @default(COMPLETED)
+  inputReviewCount    Int              @default(0)
+  rating              Decimal?         @db.Decimal(2, 1)
+  pulseScore          Int?
+  sentimentBreakdown  Json?
+  topComplaints       Json?
+  topCompliments      Json?
+  summary             String?
+  recommendation      String?
+  trendSummary        String?
+  rawPayload          Json?
+  generatedAt         DateTime         @default(now())
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  businessProfile     BusinessProfile  @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  reports             Report[]
+
+  @@index([businessProfileId])
+  @@index([status])
+  @@index([generatedAt])
+}
+
+model Report {
+  id                  String           @id @default(cuid())
+  userId              String?
+  businessProfileId   String
+  analysisResultId    String?
+  cadence             ReportCadence
+  status              ReportStatus     @default(DRAFT)
+  title               String
+  subject             String?
+  previewBody         String?
+  dateRangeStart      DateTime?
+  dateRangeEnd        DateTime?
+  exportFormat        ReportFormat?
+  fileUrl             String?
+  recipientEmail      String?
+  emailStatus         String           @default("NOT_CONFIGURED")
+  emailScheduledFor   DateTime?
+  rawPayload          Json?
+  generatedAt         DateTime?
+  sentAt              DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  user                User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessProfile     BusinessProfile  @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  analysisResult      AnalysisResult?  @relation(fields: [analysisResultId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([businessProfileId])
+  @@index([analysisResultId])
+  @@index([cadence])
+  @@index([status])
+  @@index([dateRangeStart])
+}
+
+model ReportEmailPreference {
+  id                  String          @id @default(cuid())
+  userId              String
+  businessProfileId   String
+  frequency           ReportCadence
+  destinationEmail    String
+  enabled             Boolean         @default(true)
+  lastSentAt          DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessProfile     BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, businessProfileId])
+  @@index([userId])
+  @@index([businessProfileId])
+  @@index([frequency])
+  @@index([enabled])
+}
+
+model Subscription {
+  id                     String              @id @default(cuid())
+  userId                 String
+  plan                   SubscriptionPlan    @default(FREE)
+  status                 SubscriptionStatus  @default(INACTIVE)
+  provider               SubscriptionProvider @default(STRIPE)
+  stripeCustomerId       String?
+  stripeSubscriptionId   String?             @unique
+  stripePriceId          String?
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean             @default(false)
+  trialEndsAt            DateTime?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  user                   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([provider])
+  @@index([stripeCustomerId])
+}
+
 enum ReviewSource {
   google_places
   google_business_profile
@@ -101,4 +214,50 @@ enum SyncStatus {
   RUNNING
   SUCCESS
   FAILED
+}
+
+enum AnalysisStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ReportCadence {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum ReportStatus {
+  DRAFT
+  GENERATED
+  SENT
+  FAILED
+}
+
+enum ReportFormat {
+  PDF
+  CSV
+  EMAIL
+}
+
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+}
+
+enum SubscriptionStatus {
+  INACTIVE
+  INCOMPLETE
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+}
+
+enum SubscriptionProvider {
+  STRIPE
+  MANUAL
 }

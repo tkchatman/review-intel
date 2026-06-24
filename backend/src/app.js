@@ -5,11 +5,21 @@ import rateLimit from "express-rate-limit";
 import morgan from "morgan";
 import { env } from "./config/env.js";
 import { authRouter } from "./routes/auth.routes.js";
+import { billingRouter, stripeWebhookRouter } from "./routes/billing.routes.js";
 import { businessesRouter } from "./routes/businesses.routes.js";
+import { reportsRouter } from "./routes/reports.routes.js";
 import { reviewsRouter } from "./routes/reviews.routes.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 export const app = express();
+
+app.use(cors({
+  origin: [
+    "https://www.reviewintelcare.com",
+    "https://reviewintelcare.com",
+    "http://localhost:5173"
+  ]
+}));
 
 app.use(helmet());
 app.use(
@@ -18,6 +28,7 @@ app.use(
     credentials: true,
   }),
 );
+app.use("/api/billing/webhook", express.raw({ type: "application/json" }), stripeWebhookRouter);
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
 app.use(
@@ -34,7 +45,9 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/api/auth", authRouter);
+app.use("/api/billing", billingRouter);
 app.use("/api/businesses", businessesRouter);
+app.use("/api/reports", reportsRouter);
 app.use("/api/reviews", reviewsRouter);
 
 app.use(notFoundHandler);

@@ -6,10 +6,63 @@ const limitedReviewMessage =
   "Limited Google review text available. Connect Google Business Profile for deeper analysis.";
 const notEnoughReviewDataMessage = "Not enough review data available yet.";
 
+const genericThemeProfile = {
+  businessType: "local business",
+  complimentThemes: [
+    { label: "Service Quality", keywords: ["service", "experience", "great", "excellent", "amazing", "quality"] },
+    { label: "Staff Friendliness", keywords: ["friendly", "kind", "welcoming", "helpful", "nice", "staff"] },
+    { label: "Wait Times", keywords: ["fast", "quick", "prompt", "on time", "wait", "waiting"] },
+    { label: "Pricing", keywords: ["price", "pricing", "value", "affordable", "worth", "reasonable"] },
+    { label: "Cleanliness", keywords: ["clean", "spotless", "tidy", "sanitary"] },
+    { label: "Appointment Experience", keywords: ["appointment", "booking", "schedule", "scheduling", "available"] },
+    { label: "Customer Service", keywords: ["customer service", "service", "helpful", "attentive", "welcoming"] },
+    { label: "Professionalism", keywords: ["professional", "respectful", "knowledgeable", "thorough"] },
+    { label: "Communication", keywords: ["communicated", "explained", "responsive", "clear", "updates"] },
+    { label: "Atmosphere", keywords: ["atmosphere", "vibe", "environment", "comfortable", "relaxing"] },
+    { label: "Product or Service Quality", keywords: ["quality", "result", "results", "work", "product"] },
+    { label: "Overall Experience", keywords: ["experience", "recommend", "return", "come back", "satisfied"] },
+  ],
+  complaintThemes: [
+    { label: "Service Quality", keywords: ["bad service", "poor service", "service", "quality", "issue", "problem"] },
+    { label: "Staff Friendliness", keywords: ["rude", "unfriendly", "attitude", "dismissive", "staff"] },
+    { label: "Wait Times", keywords: ["wait", "waiting", "slow", "delay", "late", "line"] },
+    { label: "Pricing", keywords: ["price", "pricing", "expensive", "overpriced", "cost", "charge"] },
+    { label: "Cleanliness", keywords: ["dirty", "unclean", "messy", "sanitary", "clean"] },
+    { label: "Appointment Experience", keywords: ["appointment", "booking", "schedule", "reschedule", "cancelled", "canceled"] },
+    { label: "Customer Service", keywords: ["customer service", "ignored", "unhelpful", "rude", "service"] },
+    { label: "Professionalism", keywords: ["unprofessional", "rushed", "careless", "respectful"] },
+    { label: "Communication", keywords: ["communication", "called", "ignored", "response", "update", "explained"] },
+    { label: "Atmosphere", keywords: ["atmosphere", "vibe", "environment", "noise", "uncomfortable"] },
+    { label: "Product or Service Quality", keywords: ["quality", "result", "results", "work", "product", "poor"] },
+    { label: "Overall Experience", keywords: ["experience", "disappointed", "bad", "terrible", "not recommend"] },
+  ],
+};
+
 const industryThemeProfiles = [
   {
+    businessType: "nail salon",
+    matchers: ["nail", "nail salon", "manicure", "pedicure"],
+    complimentThemes: [
+      { label: "Nail Quality", keywords: ["nail", "nails", "manicure", "pedicure", "polish", "gel", "acrylic", "dip"] },
+      { label: "Technician Skill", keywords: ["tech", "technician", "artist", "skilled", "detail", "design"] },
+      { label: "Appointment Experience", keywords: ["appointment", "booking", "schedule", "walk in", "walk-in", "on time"] },
+      { label: "Cleanliness", keywords: ["clean", "sanitary", "spotless", "hygienic"] },
+      { label: "Pricing", keywords: ["price", "pricing", "worth", "value", "affordable", "reasonable"] },
+      { label: "Customer Service", keywords: ["service", "friendly", "welcoming", "kind", "helpful"] },
+      { label: "Atmosphere", keywords: ["atmosphere", "relaxing", "vibe", "comfortable", "environment"] },
+    ],
+    complaintThemes: [
+      { label: "Nail Quality", keywords: ["nail", "nails", "chipped", "lifting", "broke", "uneven", "polish", "gel", "acrylic"] },
+      { label: "Technician Skill", keywords: ["tech", "technician", "rushed", "rough", "cuticle", "design", "shape"] },
+      { label: "Appointment Experience", keywords: ["appointment", "booking", "schedule", "reschedule", "cancelled", "canceled", "wait"] },
+      { label: "Cleanliness", keywords: ["dirty", "unclean", "sanitary", "tools", "clean"] },
+      { label: "Pricing", keywords: ["price", "pricing", "expensive", "overpriced", "cost", "charge"] },
+      { label: "Customer Service", keywords: ["rude", "service", "attitude", "ignored", "unprofessional"] },
+    ],
+  },
+  {
     businessType: "barbershop",
-    matchers: ["barber", "barbershop", "hair_care", "hair salon", "salon", "beauty_salon"],
+    matchers: ["barber", "barbershop", "hair_care", "hair care", "hair salon", "hairdresser"],
     complimentThemes: [
       { label: "Haircut Quality", keywords: ["haircut", "cut", "trim", "style", "styled", "sharp", "clean cut"] },
       { label: "Barber Skill", keywords: ["barber", "skilled", "talented", "master", "professional", "attention to detail"] },
@@ -168,28 +221,26 @@ function getBusinessCategoryText(place) {
     .toLowerCase();
 }
 
+function hasCategoryMatch(categoryText, matcher) {
+  const normalizedMatcher = matcher.replaceAll("_", " ").toLowerCase();
+  const escapedMatcher = normalizedMatcher.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|\\b)${escapedMatcher}(\\b|$)`).test(categoryText);
+}
+
 function getIndustryProfile(place) {
   const categoryText = getBusinessCategoryText(place);
-
-  return (
-    industryThemeProfiles.find((profile) =>
-      profile.matchers.some((matcher) => categoryText.includes(matcher.replaceAll("_", " ").toLowerCase())),
-    ) ?? {
-      businessType: place?.category?.toLowerCase() || "local business",
-      complimentThemes: [
-        { label: "Service Quality", keywords: ["service", "helpful", "friendly", "professional", "great"] },
-        { label: "Pricing", keywords: ["price", "pricing", "value", "affordable", "worth"] },
-        { label: "Communication", keywords: ["communicated", "explained", "responsive", "clear"] },
-        { label: "Atmosphere", keywords: ["atmosphere", "vibe", "environment", "comfortable"] },
-      ],
-      complaintThemes: [
-        { label: "Service Quality", keywords: ["service", "rude", "unprofessional", "ignored", "bad"] },
-        { label: "Wait Times", keywords: ["wait", "waiting", "slow", "delay", "late"] },
-        { label: "Pricing", keywords: ["price", "expensive", "overpriced", "cost", "charge"] },
-        { label: "Communication", keywords: ["communication", "called", "ignored", "response", "update"] },
-      ],
-    }
+  const matchedProfile = industryThemeProfiles.find((profile) =>
+    profile.matchers.some((matcher) => hasCategoryMatch(categoryText, matcher)),
   );
+
+  if (matchedProfile) {
+    return matchedProfile;
+  }
+
+  return {
+    ...genericThemeProfile,
+    businessType: place?.category?.toLowerCase() || genericThemeProfile.businessType,
+  };
 }
 
 function countThemes(reviews, themes) {

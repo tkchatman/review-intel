@@ -6,21 +6,28 @@ export async function upsertBusinessProfile({ userId, place, managedLocation }) 
   const formattedAddress = place.formattedAddress ?? place.address;
   const primaryCategory = location?.categories?.primaryCategory?.displayName ?? place.category;
   const source = managedLocation ? "google_business_profile" : "google_places";
+  const updateData = {
+    displayName,
+    formattedAddress,
+    rating: place.rating,
+    reviewCount: place.reviewCount,
+    primaryCategory,
+  };
+
+  if (userId) {
+    updateData.userId = userId;
+  }
+
+  if (managedLocation) {
+    updateData.googleAccountName = managedLocation.account?.name;
+    updateData.googleLocationName = location?.name;
+    updateData.source = source;
+    updateData.lastSyncedAt = new Date();
+  }
 
   return prisma.businessProfile.upsert({
     where: { googlePlaceId: place.placeId },
-    update: {
-      userId,
-      googleAccountName: managedLocation?.account?.name,
-      googleLocationName: location?.name,
-      displayName,
-      formattedAddress,
-      rating: place.rating,
-      reviewCount: place.reviewCount,
-      primaryCategory,
-      source,
-      lastSyncedAt: new Date(),
-    },
+    update: updateData,
     create: {
       userId,
       googleAccountName: managedLocation?.account?.name,

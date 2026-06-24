@@ -9,7 +9,10 @@
     "start": "node src/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:status": "prisma migrate status",
+    "comp:premium": "node scripts/comp-premium-user.js",
+    "revoke:premium": "node scripts/revoke-comp-premium-user.js"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
@@ -19,6 +22,7 @@
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "morgan": "^1.10.0",
+    "stripe": "^22.2.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {

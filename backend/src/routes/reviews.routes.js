@@ -2,7 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { refreshAccessToken } from "../lib/googleOAuth.js";
 import { prisma } from "../lib/prisma.js";
+import { decryptToken } from "../lib/tokenCrypto.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
+import { requireAuth, requirePremium } from "../middleware/authMiddleware.js";
 import { upsertReviews } from "../repositories/business.repository.js";
 import { listLocationReviews } from "../services/googleBusinessProfile.service.js";
 
@@ -10,18 +12,27 @@ export const reviewsRouter = Router();
 
 reviewsRouter.post(
   "/sync",
+  requireAuth,
+  requirePremium,
   asyncHandler(async (req, res) => {
     const body = z
       .object({
-        userId: z.string().min(1),
         businessProfileId: z.string().min(1),
       })
       .parse(req.body);
 
-    const user = await prisma.user.findUniqueOrThrow({ where: { id: body.userId } });
+    const user = req.user;
     const businessProfile = await prisma.businessProfile.findUniqueOrThrow({
       where: { id: body.businessProfileId },
     });
+
+    if (businessProfile.userId && businessProfile.userId !== user.id) {
+      return res.status(403).json({
+        error: {
+          message: "You do not have access to this business profile.",
+        },
+      });
+    }
 
     if (!businessProfile.googleLocationName || !businessProfile.googleAccountName) {
       return res.status(400).json({
@@ -40,7 +51,7 @@ reviewsRouter.post(
       },
     });
 
-    const token = await refreshAccessToken(user.googleRefreshToken);
+    const token = await refreshAccessToken(decryptToken(user.googleRefreshToken));
     const accountId = businessProfile.googleAccountName.split("/").at(-1);
     const locationId = businessProfile.googleLocationName.split("/").at(-1);
 
