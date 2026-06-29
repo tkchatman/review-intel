@@ -13,18 +13,28 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 export const app = express();
 
-app.use(cors({
-  origin: [
+const allowedOrigins = new Set(
+  [
+    env.FRONTEND_URL,
+    env.NEXT_PUBLIC_APP_URL,
     "https://www.reviewintelcare.com",
     "https://reviewintelcare.com",
-    "http://localhost:5173"
-  ]
-}));
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+  ].filter(Boolean),
+);
 
 app.use(helmet());
 app.use(
   cors({
-    origin: env.FRONTEND_URL,
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked origin: ${origin}`));
+    },
     credentials: true,
   }),
 );

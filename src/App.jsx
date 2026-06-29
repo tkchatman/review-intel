@@ -1,7 +1,9 @@
 ﻿import { useEffect, useState } from "react";
 import "./App.css";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://api.reviewintelcare.com";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.PROD ? "https://api.reviewintelcare.com" : "http://localhost:4000");
 const SELECTED_BUSINESS_STORAGE_KEY = "selectedBusiness";
 const SELECTED_PLACE_ID_STORAGE_KEY = "selectedGooglePlaceId";
 const GOOGLE_USER_ID_STORAGE_KEY = "googleBusinessUserId";
