@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import "./App.css";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || VITE_API_URL=https://api.reviewintelcare.com
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://api.reviewintelcare.com";
 const SELECTED_BUSINESS_STORAGE_KEY = "selectedBusiness";
 const SELECTED_PLACE_ID_STORAGE_KEY = "selectedGooglePlaceId";
 const GOOGLE_USER_ID_STORAGE_KEY = "googleBusinessUserId";
@@ -2918,4 +2918,3 @@ function InsightBox({ title, items, emptyMessage }) {
 }
 
 export default App;
-
